@@ -83,7 +83,7 @@
 (def +max-total-connections+ 100)
 (def +paypal-pixel-gif-url+ "https://www.paypal.com/en_US/i/scr/pixel.gif")
 (def +utf-8+ "UTF-8")
-(def +version+ "1.2.0")
+(def +version+ "1.2.1")
 (def +wiki-link-class+ "wiki_link")
 (def +www-wikispaces-com-js-regex+ #"http://www.wikispaces.com/.*\.js$")
 
@@ -652,13 +652,16 @@
 
 (defn save-website
   [home-page-url root-dir-name & opts]
-  (if @->http-client
-	(println "Busy saving a website. Try again later.")
+  (if (nil? @->http-client)
 	(do
 	  (init-refs home-page-url root-dir-name)
 	  (process-options opts)
 	  (when (not-saved? ->saved-hrefs @->home-page)
-		(start-stg-thread #(save-page @->home-page))))))
+		(start-stg-thread #(save-page @->home-page)))
+	  true)
+	(do
+	  (println "Busy saving a website. Try again later.")
+	  false)))
 
 (defn save-org
   "Save the Clojure.org website to the user's current working directory.
@@ -680,9 +683,9 @@
   while saving the websites."
   [& opts]
   (.start (Thread. (fn []
-					 (invoke save-org opts)
-					 (loop [stg-watcher @->stg-watcher]
-					   (if stg-watcher
-						 (.join stg-watcher)
-						 (recur @->stg-watcher)))
-					 (invoke save-contrib opts)))))
+					 (when (invoke save-org opts)
+					   (loop [stg-watcher @->stg-watcher]
+						 (if stg-watcher
+						   (.join stg-watcher)
+						   (recur @->stg-watcher)))
+					   (invoke save-contrib opts))))))
