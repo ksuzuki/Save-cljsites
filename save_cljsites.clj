@@ -10,22 +10,29 @@
 ;; the terms of this license.
 ;; You must not remove this notice, or any other, from this software.
 ;;
-;; This program saves the pages and its resources of the Clojure.org and
-;; Clojure-contrib websites.
+;; This program saves the pages and its resources of some known Clojure
+;; websites. Those are:
+;;   http://clojure.org/
+;;   http://richhickey.github.com/clojure/
+;;   http://richhickey.github.com/clojure-contrib/
 ;;
 ;; Usage
-;; (save-cljsites/save & option)
-;; Save both the Clojure.org and Clojure-contrib websites to the user's current
-;; working directory.
+;; (save-cljsites/save-all & option)
+;; Save the Clojure websites to the user's current working directory. Adding the
+;; :verbose option prints extra status messages while saving the websites.
 ;;
-;; (save-cljsites/save-org & option)
-;; Save the Clojure.org website only.
+;; (save-cljsites/save site-key & option)
+;; Save the Clojure website specified by the given site key to the user's
+;; current working directory. Adding the :verbose option prints extra status
+;; messages while saving the website.
 ;;
-;; (save-cljsites/save-contrib & option)
-;; Save the Clojure-contrib website only.
+;; e.g. (save-cljsites/save :org :verbose)
 ;;
-;; All these three calls take one option :verbose currently, which let them
-;; print extra status messages while saving the websites.
+;; Use print-sites to print known site keys, their URLs and save directory
+;; names.
+;;
+;; (savae-cljsites/print-sites)
+;; Print all Clojure site keys, their URLs and save directory names.
 ;;
 ;; Requirements
 ;; This program requires HttpClient 4.0 and dependencies from the Apache
@@ -68,31 +75,56 @@
 			EntityUtils)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;;
+;;;; Macros
+
+(defmacro clojure-org-url
+  []
+  `(first (+sites+ :org)))
+
+(defmacro abs-save-root-dir
+  []
+  `(File. +user-dir+ +save-root-dir+))
+
+(defmacro with-out-stream
+  [stream & body]
+  `(binding [*out* ~stream]
+	 ~@body))
+
+(defmacro with-out-err
+  [& body]
+  `(with-out-stream *err*
+	 ~@body))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;;; constants and variables
+
+;;;; Known sites: map of site-key as key and [site-url site-dir] as value
+;;;; site-dir will be created under (abs-save-root-dir)
+
+(def +sites+ {:org ["http://clojure.org/" "org"],
+			  :api ["http://richhickey.github.com/clojure/" "api"],
+			  :contrib ["http://richhickey.github.com/clojure-contrib/" "contrib"]})
 
 ;;;; Constants
 
-(def +Clojure-contrib+ "Clojure-contrib")
-(def +Clojure-org+ "Clojure.org")
-(def +clojure-contrib-url+ "http://richhickey.github.com/clojure-contrib/")
-(def +clojure-org-url+ "http://clojure.org/")
 (def +dot-hdrs+ ".hdrs")
 (def +dot-html+ ".html")
 (def +http-scheme-regex+ #"^http://")
 (def +href-regex+ #"^/?(([^.#]+\.?)+)(#.*)?$")
 (def +max-total-connections+ 100)
 (def +paypal-pixel-gif-url+ "https://www.paypal.com/en_US/i/scr/pixel.gif")
+(def +save-root-dir+ "Clojure-sites")
+(def +user-dir+ (System/getProperty "user.dir"))
 (def +utf-8+ "UTF-8")
-(def +version+ "1.2.1")
+(def +version+ "1.3.0 RC1")
 (def +wiki-link-class+ "wiki_link")
 (def +www-wikispaces-com-js-regex+ #"http://www.wikispaces.com/.*\.js$")
 
 ;;;; Refs
 
 (def ->home-page (ref "/home"))
-(def ->home-page-url (ref +clojure-org-url+))
-(def ->root-dir (ref (File. (File. (System/getProperty "user.dir")) +Clojure-org+)))
-(def ->root-dir-name (ref +Clojure-org+))
+(def ->home-page-url (ref (clojure-org-url)))
+(def ->root-dir (ref (File. (abs-save-root-dir) (second (+sites+ :org)))))
 (def ->root-res-dir (ref (File. @->root-dir ".res")))
 
 (def ->saved-hrefs (ref #{}))
@@ -117,20 +149,7 @@
 (def *title* nil)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;;
-
-(defmacro with-out-stream
-  [stream & body]
-  `(binding [*out* ~stream]
-	 ~@body))
-
-(defmacro with-out-err
-  [& body]
-  `(with-out-stream *err*
-	 ~@body))
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;;
+;;;; fns
 
 (defn init-http-params
   [params]
@@ -161,12 +180,11 @@
 	(str url \/)))
 
 (defn init-refs
-  [home-page-url root-dir-name]
+  [home-page-url site-dir]
   (dosync
    (ref-set ->home-page-url (consistent-dir-url home-page-url))
-   (ref-set ->home-page (if (= @->home-page-url +clojure-org-url+) "/home" "index.html"))
-   (ref-set ->root-dir (File. (File. (System/getProperty "user.dir")) root-dir-name))
-   (ref-set ->root-dir-name root-dir-name)
+   (ref-set ->home-page (if (= @->home-page-url (clojure-org-url)) "/home" "index.html"))
+   (ref-set ->root-dir (File. (abs-save-root-dir) site-dir))
    (ref-set ->root-res-dir (File. @->root-dir ".res")))
   (dosync
    (ref-set ->saved-hrefs #{})
@@ -203,9 +221,13 @@
   (with-out-err
 	(println "ERROR:" (if msgs (apply str msgs) "(no details given)"))))
 
-(defn anchor-href?
+(defn in-page-anchor-href?
   [href]
   (= \# (first href)))
+
+(defn out-of-domain-href?
+  [href]
+  (re-find +http-scheme-regex+ href))
 
 (defn valid-non-anchor-href?
   [href]
@@ -217,9 +239,12 @@
 (defn apply-href-pattern
   [href]
   (let [match (re-find +href-regex+ (if (= href "/") @->home-page href))]
-	(if match
-	  match
-	  (throw (Exception. href)))))
+	(try
+	 (if match
+	   match
+	   (throw (Exception. (format "re-find failed with %s" href))))
+	 (catch Exception e
+	   (throw (Exception. (format "if match failed with %s" href)))))))
 
 (defn page-name-and-match-from-href
   [href]
@@ -274,14 +299,27 @@
 	  (remember-resource tag val)
 	  (str-alt-content (str tag) attr key (val-fn val) simple))))
 
+(defn replace-to-rel-href-if-known
+  [href]
+  (let [hrf (if (= (last href) \/) href (str href \/))
+		fnd (filter #(= hrf (first %)) (map #(val %) +sites+))]
+	(if (seq fnd)
+	  (let [[url dir] (first fnd)] 
+		(str "../../" dir (if (= url (clojure-org-url))
+							"/home/home.html"
+							"/index/index.html")))
+	  href)))
+
 (defn regen-relative-href
   [href]
-  (if (or (anchor-href? href) (re-find +http-scheme-regex+ href))
-	href
-	(let [name-and-match (page-name-and-match-from-href href)
-		  name (:name name-and-match)
-		  anchor (last (:match name-and-match))]
-	  (str "../" name "/" name +dot-html+ anchor))))
+  (if (out-of-domain-href? href)
+	(replace-to-rel-href-if-known href)
+	(if (in-page-anchor-href? href)
+	  href
+	  (let [name-and-match (page-name-and-match-from-href href)
+			name (:name name-and-match)
+			anchor (last (:match name-and-match))]
+		(str "../" name "/" name +dot-html+ anchor)))))
 
 (defn to-res-path
   [path]
@@ -430,9 +468,16 @@
 
 (defn cleanup
   []
+  (dosync
+   (ref-set ->saved-hrefs #{})
+   (ref-set ->saved-res #{})
+   (ref-set ->stg nil)
+   (ref-set ->stg-watcher nil))
   (.. @->http-client getConnectionManager shutdown)
   (reset! ->http-client nil)
-  (println "Saving" @->root-dir-name "is done!"
+  (println "Saving Clojure"
+		   (second (val (first (filter #(= @->home-page-url (first (val %))) +sites+))))
+		   "site completed"
 		   (format "(%.2f msecs)" (/ (double (- (System/nanoTime) @->start-nano-time)) 1000000.0))))
 
 (defn watch-stg
@@ -492,7 +537,8 @@
 	(write-to pos (if (.containsAttribute attr HTML$Attribute/CLASS +wiki-link-class+)
 					(gen-alt-content-if true tag attr simple HREF regen-relative-href)
 					(when-let [href (.getAttribute attr HREF)]
-					  (str-alt-content tag attr HREF (regen-relative-href href) simple))))))
+					  (when (not-empty href) ;; href can be empty.
+						(str-alt-content tag attr HREF (regen-relative-href href) simple)))))))
 
 (defmethod handle-tags HTML$Tag/IMG
   [tag attr pos simple]
@@ -651,10 +697,10 @@
 		(start-stg-thread #(save-page href))))))
 
 (defn save-website
-  [home-page-url root-dir-name & opts]
+  [home-page-url site-dir & opts]
   (if (nil? @->http-client)
 	(do
-	  (init-refs home-page-url root-dir-name)
+	  (init-refs home-page-url site-dir)
 	  (process-options opts)
 	  (when (not-saved? ->saved-hrefs @->home-page)
 		(start-stg-thread #(save-page @->home-page)))
@@ -663,29 +709,35 @@
 	  (println "Busy saving a website. Try again later.")
 	  false)))
 
-(defn save-org
-  "Save the Clojure.org website to the user's current working directory.
-  Adding the :verbose option prints extra status messages  while saving the
-  website."
-  [& opts]
-  (invoke save-website +clojure-org-url+ +Clojure-org+ opts))
-
-(defn save-contrib
-  "Save the Clojure-contrib website to the user's current working directory.
-  Adding the :verbose option prints extra status messages while saving the
-  website."
-  [& opts]
-  (invoke save-website +clojure-contrib-url+ +Clojure-contrib+ opts))
+(defn print-sites
+  "Print all site keys, their URLs and save directory names."
+  []
+  (printf "%-16s %-64s %s\n" "Site key" "URL" "Save directory")
+  (doseq [[k [u d]] +sites+]
+	(printf "%-16s %-64s %s\n" k u (File. (abs-save-root-dir) d))))
 
 (defn save
-  "Save both the Clojure.org and Clojure-contrib websites to the user's current
-  working directory. Adding the :verbose option prints extra status messages
-  while saving the websites."
+  "Save the Clojure website specified by the given site key to the user's
+  current working directory. Adding the :verbose option prints extra status
+  messages while saving the website.
+  Use print-sites to print known site keys, their URLs and save directory
+  names."
+  [site-key & opts]
+  (if ((apply hash-set (keys +sites+)) site-key)
+	(let [[url dir] (+sites+ site-key)]
+	  (invoke save-website url dir opts))
+	"Unknown site key. Do print-sites for knwon site keys and try again."))
+
+(defn save-all
+  "Save the Clojure websites to the user's current working directory.
+  Adding the :verbose option prints extra status messages while saving the websites."
   [& opts]
-  (.start (Thread. (fn []
-					 (when (invoke save-org opts)
-					   (loop [stg-watcher @->stg-watcher]
-						 (if stg-watcher
-						   (.join stg-watcher)
-						   (recur @->stg-watcher)))
-					   (invoke save-contrib opts))))))
+  (letfn [(save-loop
+		   []
+		   (doseq [[_ [url dir]] +sites+]
+			 (when (invoke save-website url dir opts)
+			   (loop [stg-watcher @->stg-watcher]
+				 (if stg-watcher
+				   (.join stg-watcher)
+				   (recur @->stg-watcher))))))]
+	(.start (Thread. save-loop))))

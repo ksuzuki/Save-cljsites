@@ -10,22 +10,29 @@
 ;; the terms of this license.
 ;; You must not remove this notice, or any other, from this software.
 ;;
-;; This program saves the pages and its resources of the Clojure.org and
-;; Clojure-contrib websites.
+;; This program saves the pages and its resources of some known Clojure
+;; websites. Those are:
+;;   http://clojure.org/
+;;   http://richhickey.github.com/clojure/
+;;   http://richhickey.github.com/clojure-contrib/
 ;;
 ;; Usage
-;; (save-cljsites/save & option)
-;; Save both the Clojure.org and Clojure-contrib websites to the user's current
-;; working directory.
+;; (save-cljsites/save-all & option)
+;; Save the Clojure websites to the user's current working directory. Adding the
+;; :verbose option prints extra status messages while saving the websites.
 ;;
-;; (save-cljsites/save-org & option)
-;; Save the Clojure.org website only.
+;; (save-cljsites/save site-key & option)
+;; Save the Clojure website specified by the given site key to the user's
+;; current working directory. Adding the :verbose option prints extra status
+;; messages while saving the website.
 ;;
-;; (save-cljsites/save-contrib & option)
-;; Save the Clojure-contrib website only.
+;; e.g. (save-cljsites/save :org :verbose)
 ;;
-;; All these three calls take one option :verbose currently, which let them
-;; print extra status messages while saving the websites.
+;; Use print-sites to print known site keys, their URLs and save directory
+;; names.
+;;
+;; (savae-cljsites/print-sites)
+;; Print all Clojure site keys, their URLs and save directory names.
 ;;
 ;; Requirements
 ;; This program requires HttpClient 4.0 and dependencies from the Apache
