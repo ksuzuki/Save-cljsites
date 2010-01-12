@@ -43,36 +43,36 @@
 (ns save-cljsites
   (:import (java.io
             BufferedReader BufferedWriter File FileOutputStream FileReader
-			FileWriter OutputStreamWriter StringReader)
+            FileWriter OutputStreamWriter StringReader)
            (javax.swing.text.html
             HTML$Attribute HTML$Tag HTMLEditorKit$ParserCallback)
            (javax.swing.text.html.parser
             ParserDelegator)
-		   (java.util
-			Date)
-		   ;;
-		   (org.apache.http
-			HttpStatus HttpVersion)
-		   (org.apache.http.client.methods
-			HttpGet)
-		   (org.apache.http.conn.params
-			ConnManagerParams)
-		   (org.apache.http.conn.scheme
-			PlainSocketFactory Scheme SchemeRegistry)
-		   (org.apache.http.conn.ssl
-			SSLSocketFactory)
-		   (org.apache.http.impl.client
-			DefaultHttpClient)
-		   (org.apache.http.impl.conn.tsccm
-			ThreadSafeClientConnManager)
-		   (org.apache.http.impl.cookie
-			DateUtils)
-		   (org.apache.http.params
-			BasicHttpParams HttpProtocolParams)
-		   (org.apache.http.protocol
-			BasicHttpContext)
-		   (org.apache.http.util
-			EntityUtils)))
+           (java.util
+            Date)
+           ;;
+           (org.apache.http
+            HttpStatus HttpVersion)
+           (org.apache.http.client.methods
+            HttpGet)
+           (org.apache.http.conn.params
+            ConnManagerParams)
+           (org.apache.http.conn.scheme
+            PlainSocketFactory Scheme SchemeRegistry)
+           (org.apache.http.conn.ssl
+            SSLSocketFactory)
+           (org.apache.http.impl.client
+            DefaultHttpClient)
+           (org.apache.http.impl.conn.tsccm
+            ThreadSafeClientConnManager)
+           (org.apache.http.impl.cookie
+            DateUtils)
+           (org.apache.http.params
+            BasicHttpParams HttpProtocolParams)
+           (org.apache.http.protocol
+            BasicHttpContext)
+           (org.apache.http.util
+            EntityUtils)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;; Macros
@@ -88,12 +88,12 @@
 (defmacro with-out-stream
   [stream & body]
   `(binding [*out* ~stream]
-	 ~@body))
+     ~@body))
 
 (defmacro with-out-err
   [& body]
   `(with-out-stream *err*
-	 ~@body))
+     ~@body))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;; constants and variables
@@ -102,32 +102,33 @@
 ;;;; site-dir will be created under (abs-save-root-dir)
 
 (def +sites+ {:org ["http://clojure.org/" "org"],
-			  :api ["http://richhickey.github.com/clojure/" "api"],
-			  :contrib ["http://richhickey.github.com/clojure-contrib/" "contrib"]})
+              :api ["http://richhickey.github.com/clojure/" "api"],
+              :contrib ["http://richhickey.github.com/clojure-contrib/" "contrib"]})
 
 ;;;; Constants
 
 (def +dot-hdrs+ ".hdrs")
 (def +dot-html+ ".html")
 (def +http-scheme-regex+ #"^http://")
-(def +href-regex+ #"^/?(([^.#]+\.?)+)(#.*)?$")
 (def +max-total-connections+ 100)
 (def +paypal-pixel-gif-url+ "https://www.paypal.com/en_US/i/scr/pixel.gif")
 (def +save-root-dir+ "Clojure-sites")
+(def +sonian-net+ "www.sonian.net")
+(def +url-regex+ #"^/?(([^.#]+\.?)+)(#.*)?$")
 (def +user-dir+ (System/getProperty "user.dir"))
 (def +utf-8+ "UTF-8")
-(def +version+ "1.3.0 RC1")
+(def +version+ "1.3.0 RC3")
 (def +wiki-link-class+ "wiki_link")
 (def +www-wikispaces-com-js-regex+ #"http://www.wikispaces.com/.*\.js$")
 
 ;;;; Refs
 
 (def ->home-page (ref "/home"))
-(def ->home-page-url (ref (clojure-org-url)))
+(def ->host-url (ref (clojure-org-url)))
 (def ->root-dir (ref (File. (abs-save-root-dir) (second (+sites+ :org)))))
 (def ->root-res-dir (ref (File. @->root-dir ".res")))
 
-(def ->saved-hrefs (ref #{}))
+(def ->saved-urls (ref #{}))
 (def ->saved-res (ref #{}))
 
 (def ->stg (ref nil)) ;; "Saving" Thread group
@@ -155,41 +156,39 @@
   [params]
   (ConnManagerParams/setMaxTotalConnections params +max-total-connections+)
   (doto params
-	(HttpProtocolParams/setVersion HttpVersion/HTTP_1_1)
-	(HttpProtocolParams/setContentCharset +utf-8+)))
+    (HttpProtocolParams/setVersion HttpVersion/HTTP_1_1)
+    (HttpProtocolParams/setContentCharset +utf-8+)))
 
 (defn init-scheme-registry
   [scheme-registry]
   (doto scheme-registry
-	(.register (Scheme. "http" (PlainSocketFactory/getSocketFactory) 80))
-	(.register (Scheme. "https" (SSLSocketFactory/getSocketFactory) 443))))
+    (.register (Scheme. "http" (PlainSocketFactory/getSocketFactory) 80))
+    (.register (Scheme. "https" (SSLSocketFactory/getSocketFactory) 443))))
 
 (defn create-http-client
   []
   (let [params (BasicHttpParams.)]
-	(init-http-params params)
-	(let [scheme-registry (SchemeRegistry.)]
-	  (init-scheme-registry scheme-registry)
-	  (let [cm (ThreadSafeClientConnManager. params scheme-registry)]
-		(DefaultHttpClient. cm params)))))
+    (init-http-params params)
+    (let [scheme-registry (SchemeRegistry.)]
+      (init-scheme-registry scheme-registry)
+      (let [cm (ThreadSafeClientConnManager. params scheme-registry)]
+        (DefaultHttpClient. cm params)))))
 
-(defn consistent-dir-url
+(defn norm-url
   [url]
-  (if (= \/ (last url))
-	url
-	(str url \/)))
+  (str url (when-not (= (last url) \/) \/)))
 
 (defn init-refs
-  [home-page-url site-dir]
+  [url dir]
   (dosync
-   (ref-set ->home-page-url (consistent-dir-url home-page-url))
-   (ref-set ->home-page (if (= @->home-page-url (clojure-org-url)) "/home" "index.html"))
-   (ref-set ->root-dir (File. (abs-save-root-dir) site-dir))
+   (ref-set ->host-url (norm-url url))
+   (ref-set ->home-page (if (= @->host-url (clojure-org-url)) "/home" "index.html"))
+   (ref-set ->root-dir (File. (abs-save-root-dir) dir))
    (ref-set ->root-res-dir (File. @->root-dir ".res")))
   (dosync
-   (ref-set ->saved-hrefs #{})
+   (ref-set ->saved-urls #{})
    (ref-set ->saved-res #{})
-   (ref-set ->stg (ThreadGroup. "stg"))
+   (ref-set ->stg (ThreadGroup. (str "stg for " url)))
    (ref-set ->stg-watcher nil))
   (reset! ->http-client (create-http-client))
   (reset! ->print-msg false)
@@ -198,18 +197,19 @@
 
 (defn process-options
   [opts]
-  (let [opts (apply hash-set opts)]
-  (when (:verbose opts)
-	(reset! ->print-msg true))))
+  (when (seq opts)
+    (let [opts (into #{} opts)]
+      (when (:verbose opts)
+        (reset! ->print-msg true)))))
 
 (defn not-saved?
   [->obj item]
   (dosync
    (if (@->obj item)
-	 false
-	 (do
-	   (alter ->obj conj item)
-	   true))))
+     false
+     (do
+       (alter ->obj conj item)
+       true))))
 
 (defn print-msg
   [& msgs]
@@ -219,45 +219,45 @@
 (defn print-error-msg
   [& msgs]
   (with-out-err
-	(println "ERROR:" (if msgs (apply str msgs) "(no details given)"))))
+    (println "ERROR:" (if msgs (apply str msgs) "(no details given)"))))
 
-(defn in-page-anchor-href?
-  [href]
-  (= \# (first href)))
+(defn in-page-anchor-url?
+  [url]
+  (= \# (first url)))
 
-(defn out-of-domain-href?
-  [href]
-  (re-find +http-scheme-regex+ href))
+(defn http-url
+  [url]
+  (re-find +http-scheme-regex+ url))
 
-(defn valid-non-anchor-href?
-  [href]
-  (let [match (re-find +href-regex+ href)]
-	(if match
-	  (nil? (last match))
-	  false)))
+(defn valid-non-anchor-url?
+  [url]
+  (let [match (re-find +url-regex+ url)]
+    (if match
+      (nil? (last match))
+      false)))
 
-(defn apply-href-pattern
-  [href]
-  (let [match (re-find +href-regex+ (if (= href "/") @->home-page href))]
-	(try
-	 (if match
-	   match
-	   (throw (Exception. (format "re-find failed with %s" href))))
-	 (catch Exception e
-	   (throw (Exception. (format "if match failed with %s" href)))))))
+(defn apply-url-pattern
+  [url]
+  (let [match (re-find +url-regex+ (if (= url "/") @->home-page url))]
+    (try
+     (if match
+       match
+       (throw (Exception. (format "re-find failed with %s" url))))
+     (catch Exception e
+       (throw (Exception. (format "if match failed with %s" url)))))))
 
-(defn page-name-and-match-from-href
-  [href]
-  (let [match (apply-href-pattern href)
-		name (second match)]
-	{:match match
-	 :name (if (= (nth match (- (count match) 2)) "html")
-			 (subs name 0 (- (count name) 5)) ;; 5:=(count ".html")
-			 name)}))
+(defn page-name-and-match-from-url
+  [url]
+  (let [match (apply-url-pattern url)
+        name (second match)]
+    {:match match
+     :name (if (= (nth match (- (count match) 2)) "html")
+             (subs name 0 (- (count name) 5)) ;; 5:=(count ".html")
+             name)}))
 
-(defn page-name-from-href
-  [href]
-  (:name (page-name-and-match-from-href href)))
+(defn to-page-name
+  [url]
+  (:name (page-name-and-match-from-url url)))
 
 (defn init-res
   []
@@ -272,7 +272,7 @@
       (.delete file))
     (if (.createNewFile file)
       file
-	  (throw (Exception. (str "Previous delete op failed for " file))))))
+      (throw (Exception. (str "Previous delete op failed for " file))))))
 
 (defn write-to
   [pos & alt-content]
@@ -295,35 +295,45 @@
 (defn gen-alt-content-if
   [pred tag attr simple key val-fn]
   (when pred
-	(let [val (.getAttribute attr key)]
-	  (remember-resource tag val)
-	  (str-alt-content (str tag) attr key (val-fn val) simple))))
+    (let [val (.getAttribute attr key)]
+      (remember-resource tag val)
+      (str-alt-content (str tag) attr key (val-fn val) simple))))
 
-(defn replace-to-rel-href-if-known
-  [href]
-  (let [hrf (if (= (last href) \/) href (str href \/))
-		fnd (filter #(= hrf (first %)) (map #(val %) +sites+))]
-	(if (seq fnd)
-	  (let [[url dir] (first fnd)] 
-		(str "../../" dir (if (= url (clojure-org-url))
-							"/home/home.html"
-							"/index/index.html")))
-	  href)))
+(defn replace-to-rel-url-if-known
+  [url]
+  (let [nurl (norm-url url)
+        fnd (filter #(= nurl (first %)) (map #(val %) +sites+))]
+    (if (seq fnd)
+      (let [[url dir] (first fnd)] 
+        (str "../../" dir (if (= url (clojure-org-url))
+                            "/home/home.html"
+                            "/index/index.html")))
+      url)))
 
-(defn regen-relative-href
-  [href]
-  (if (out-of-domain-href? href)
-	(replace-to-rel-href-if-known href)
-	(if (in-page-anchor-href? href)
-	  href
-	  (let [name-and-match (page-name-and-match-from-href href)
-			name (:name name-and-match)
-			anchor (last (:match name-and-match))]
-		(str "../" name "/" name +dot-html+ anchor)))))
+(defn regen-relative-url
+  [url]
+  (if (http-url url)
+    (replace-to-rel-url-if-known url)
+    (if (in-page-anchor-url? url)
+      url
+      (let [name-and-match (page-name-and-match-from-url url)
+            name (:name name-and-match)
+            anchor (last (:match name-and-match))]
+        (str "../" name "/" name +dot-html+ anchor)))))
+
+(defn extract-host-from-url
+  [url]
+  (second (re-find #"http://([^/]+)/" url)))
+
+(defn url-to-name
+  [url]
+  (let [name (subs url (inc (.lastIndexOf url (int \/))))
+        host (extract-host-from-url (if (http-url url) url *last-url*))]
+    (str (.replaceAll host "\\." "_") "-" name)))
 
 (defn to-res-path
-  [path]
-  (str "../.res" (subs path (.lastIndexOf path (int \/)))))
+  [url]
+  (str "../.res/" (url-to-name url)))
 
 (defn post-text-handler
   [txthdr]
@@ -343,69 +353,79 @@
       (println v))
     (println)))
 
-(defn target-url
-  [href]
-  (if (re-find +http-scheme-regex+ href)
-	href
-	(let [parent-url (if (= \/ (first href))
-					   @->home-page-url
-					   (if *last-url*
-						 *last-url*
-						 @->home-page-url))]
-	  (str (subs parent-url 0 (.lastIndexOf parent-url (int \/)))
-		   (if (= \/ (first href)) href (str \/ href))))))
+(defn complete-url
+  [url]
+  (if (re-find +http-scheme-regex+ url)
+    url
+    (let [parent (if (= (first url) \/)
+                       @->host-url
+                       (if *last-url*
+                         *last-url*
+                         @->host-url))]
+      (str (subs parent 0 (.lastIndexOf parent (int \/)))
+           (if (= (first url) \/) url (str \/ url))))))
+
+(defn res-url-filter
+  "Special resource url filter: currently applied only for retreiving the
+   logo.gif from www.sonian.net. The site server fails to respond quite
+   often. In the case when it succeeds to respond, the url is actually
+   redirected to its .com domain. So try to get the gif from the .com
+   directly, hoping it can avoid response failure."
+  [url]
+  (if (= (extract-host-from-url url) +sonian-net+)
+    (.replace url ".net/" ".com/")
+    url))
 
 (defn modify-urls-in-line
   ([line]
-	 (modify-urls-in-line line (re-seq #"url\(([^()]+)\)" line)))
+     (modify-urls-in-line line (re-seq #"url\(([^()]+)\)" line)))
   ([line urlvsq]
-	 (if (empty? urlvsq)
-	   line
-	   (let [url ((first urlvsq) 1)
-			 res-url (target-url url)]
-		 (declare save-resource-if-require handle-resources-no-mod-call)
-		 (save-resource-if-require {:url res-url :handler handle-resources-no-mod-call})
-		 (recur (.replaceAll line url (second (re-find #"/?([^/]+)$" url))) (rest urlvsq))))))
+     (if (seq urlvsq)
+       (let [url ((first urlvsq) 1)
+             res-url (res-url-filter (complete-url url))]
+         (declare save-resources handle-resources-no-mod-call)
+         (save-resources res-url handle-resources-no-mod-call)
+         (recur (.replaceAll line url (to-res-path res-url)) (rest urlvsq)))
+       line)))
 
 (defn modify-urls-in-file
   [file]
   (print-msg "Modifying url()s in " file)
   (let [tmpfile (File/createTempFile "___" nil)]
-	(with-open [writer (BufferedWriter. (FileWriter. tmpfile))]
-	  (loop [lines (line-seq (BufferedReader. (FileReader. file)))]
-		(when lines
-		  (doto writer
-			(.write (modify-urls-in-line (first lines)))
-			(.newLine))
-		  (recur (next lines)))))
-	(if (.delete file)
-	  (.renameTo tmpfile file)
-	  (print-error-msg "Delete-and-renaming " file " failed."))))
-	  
+    (with-open [writer (BufferedWriter. (FileWriter. tmpfile))]
+      (loop [lines (line-seq (BufferedReader. (FileReader. file)))]
+        (when lines
+          (doto writer
+            (.write (modify-urls-in-line (first lines)))
+            (.newLine))
+          (recur (next lines)))))
+    (if (.delete file)
+      (.renameTo tmpfile file)
+      (print-error-msg "Delete-and-renaming " file " failed."))))
+      
 (defn to-lower-name-set
   [s]
   (into #{} (map #(.toLowerCase (str %)) s)))
 
 (defn get-header-value-string
   [header-string]
-  (let [match (re-find #"^[^:]+:\s*(.*)$" header-string)]
-	(nth match 1)))
+  (second (re-find #"^[^:]+:\s*(.*)$" header-string)))
 
 (defn save-response-headers
   [file response]
   (let [hdrs-file (create-new-file (.getParentFile file) (str (.getName file) +dot-hdrs+))
-		hdrs-ostrm (FileOutputStream. hdrs-file)]
-	(with-open [ostrm-wtr (OutputStreamWriter. hdrs-ostrm +utf-8+)]
-	  (with-out-stream ostrm-wtr
-		(println "{")
-		(print (apply str (map #(when-let [hdr (.getFirstHeader response %)]
-								  (when-let [val (.getValue hdr)]
-									(when-not (empty? val)
-									  (format "%s \"%s\"\n" (keyword %) val))))
-							   ["Cache-Control" "Date" "Expires" "Last-Modified"])))
-		(println "}")))))
+        hdrs-ostrm (FileOutputStream. hdrs-file)]
+    (with-open [ostrm-wtr (OutputStreamWriter. hdrs-ostrm +utf-8+)]
+      (with-out-stream ostrm-wtr
+        (println "{")
+        (print (apply str (map #(when-let [hdr (.getFirstHeader response %)]
+                                  (when-let [val (.getValue hdr)]
+                                    (when (not-empty val)
+                                      (format "%s \"%s\"\n" (keyword %) val))))
+                               ["Cache-Control" "Date" "Expires" "Last-Modified"])))
+        (println "}")))))
 
-(defn js-from-www-wikispaces-com?
+(defn is-js-from-www-wikispaces-com
   "Use this function when you want to avoid downloading unnecessary .js files
    from www.wikispaces.com."
   [url]
@@ -416,69 +436,69 @@
   (print-msg "Get " url " because " reason)
   true)
 
-(defn require?
+(defn need-this-res?
   [res-url]
-  (if (js-from-www-wikispaces-com? res-url)
-	false
-	(let [res-fname (subs res-url (.lastIndexOf res-url (int \/)))]
-	  (if-not (.exists (File. @->root-res-dir res-fname))
-		(true-with-reason res-url "the file doesn't exist")
-		(let [res-hdrs-file (File. @->root-res-dir (str res-fname +dot-hdrs+))]
-		  (if-not (.exists res-hdrs-file)
-			(true-with-reason res-url "the header info doesn't exist")
-			(let [res-hdrs (read-string (slurp (.getPath res-hdrs-file)))
-				  expiry-str (:Expires res-hdrs)]
-			  (if (or (nil? expiry-str) (empty? expiry-str))
-				(true-with-reason res-url "expiry info is missing")
-				(let [date-str (:Date res-hdrs)]
-				  (if (or (nil? date-str) (empty? date-str))
-					(true-with-reason res-url "date info is missing")
-					(let [expiry-date (DateUtils/parseDate expiry-str)
-						  date (DateUtils/parseDate date-str)]
-					  (if (<= (.compareTo expiry-date date) 0)
-						(true-with-reason res-url "the server wish it's not cached")
-						(if (< (.compareTo expiry-date (Date.)) 0)
-						  (true-with-reason res-url "it expired")
-						  false)))))))))))))
+  (if (is-js-from-www-wikispaces-com res-url)
+    false
+    (let [res-fname (url-to-name res-url)]
+      (if-not (.exists (File. @->root-res-dir res-fname))
+        (true-with-reason res-url "the file doesn't exist")
+        (let [res-hdrs-file (File. @->root-res-dir (str res-fname +dot-hdrs+))]
+          (if-not (.exists res-hdrs-file)
+            (true-with-reason res-url "the header info doesn't exist")
+            (let [res-hdrs (read-string (slurp (.getPath res-hdrs-file)))
+                  expiry-str (:Expires res-hdrs)]
+              (if (or (nil? expiry-str) (empty? expiry-str))
+                (true-with-reason res-url "expiry info is missing")
+                (let [date-str (:Date res-hdrs)]
+                  (if (or (nil? date-str) (empty? date-str))
+                    (true-with-reason res-url "date info is missing")
+                    (let [expiry-date (DateUtils/parseDate expiry-str)
+                          date (DateUtils/parseDate date-str)]
+                      (if (<= (.compareTo expiry-date date) 0)
+                        (true-with-reason res-url "the server wish it's not cached")
+                        (if (< (.compareTo expiry-date (Date.)) 0)
+                          (true-with-reason res-url "it expired")
+                          false)))))))))))))
 
 (defn add-last-modified-param
   ([paramap]
-	 (declare handle-page)
-	 (if (= (:handler paramap) handle-page)
-	   ;; for page
-	   (let [page-name (page-name-from-href (:href paramap))
-			 page-hdrs-file (File. (File. @->root-dir page-name)
-								   (str page-name +dot-html+ +dot-hdrs+))]
-		 (add-last-modified-param paramap page-hdrs-file))
-	   ;; for resource
-	   (let [res-url (:url paramap)]
-		 (if (js-from-www-wikispaces-com? res-url)
-		   paramap
-		   (let [res-hdrs-file (File. @->root-res-dir
-									  (str (subs res-url (.lastIndexOf res-url (int \/))) +dot-hdrs+))]
-			 (add-last-modified-param paramap res-hdrs-file))))))
+     (declare handle-page)
+     (if (= (:handler paramap) handle-page)
+       ;; for page
+       (let [page-name (to-page-name (:page paramap))
+             page-hdrs-file (File. (File. @->root-dir page-name)
+                                   (str page-name +dot-html+ +dot-hdrs+))]
+         (add-last-modified-param paramap page-hdrs-file))
+       ;; for resource
+       (let [res-url (:url paramap)]
+         (if (is-js-from-www-wikispaces-com res-url)
+           paramap
+           (let [res-hdrs-file (File. @->root-res-dir
+                                      (str (url-to-name res-url) +dot-hdrs+))]
+             (add-last-modified-param paramap res-hdrs-file))))))
   ([paramap hdrs-file]
-	 (if (.exists hdrs-file)
-	   (let [hdrs (read-string (slurp (.getPath hdrs-file)))
-			 last-modified (:Last-Modified hdrs)]
-		 (if last-modified
-		   (conj paramap {:last-modified last-modified})
-		   paramap))
-	   paramap)))
+     (if (.exists hdrs-file)
+       (let [hdrs (read-string (slurp (.getPath hdrs-file)))
+             last-modified (:Last-Modified hdrs)]
+         (if last-modified
+           (conj paramap {:last-modified last-modified})
+           paramap))
+       paramap)))
 
 (defn cleanup
   []
+  (.. @->http-client getConnectionManager shutdown)
+  (reset! ->http-client nil)
   (dosync
-   (ref-set ->saved-hrefs #{})
+   (ref-set ->saved-urls #{})
    (ref-set ->saved-res #{})
    (ref-set ->stg nil)
    (ref-set ->stg-watcher nil))
-  (.. @->http-client getConnectionManager shutdown)
-  (reset! ->http-client nil)
   (println "Saving Clojure"
-		   (second (val (first (filter #(= @->home-page-url (first (val %))) +sites+))))
-		   "site completed"
-		   (format "(%.2f msecs)" (/ (double (- (System/nanoTime) @->start-nano-time)) 1000000.0))))
+           (second (val (first (filter #(= @->host-url (first (val %))) +sites+))))
+           "site completed"
+           (format "(%.2f msecs)" (/ (double (- (System/nanoTime) @->start-nano-time)) 1000000.0))))
 
 (defn watch-stg
   "Due to the way to create the thread that runs this function the thread
@@ -486,21 +506,13 @@
    the active count of the stg gets down to 1, not zero."
   []
   (loop [active-count (.activeCount @->stg)]
-	(if (< 1 active-count)
-	  (recur (.activeCount @->stg))
-	  (cleanup))))
+    (if (< 1 active-count)
+      (recur (.activeCount @->stg))
+      (cleanup))))
 
 (defn start-stg-thread
   [f]
   (.start (Thread. @->stg f)))
-
-(defn invoke
-  ([f]
-	 (f))
-  ([f opts]
-	 (apply f opts))
-  ([f url name opts]
-	 (apply f url name opts)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;
@@ -526,7 +538,7 @@
 
 (defmulti handle-tags
   (fn [tag attr pos simple]
-	tag))
+    tag))
 
 (defmethod handle-tags :default
   [tag attr pos simple])
@@ -534,30 +546,30 @@
 (defmethod handle-tags HTML$Tag/A
   [tag attr pos simple]
   (let [HREF HTML$Attribute/HREF]
-	(write-to pos (if (.containsAttribute attr HTML$Attribute/CLASS +wiki-link-class+)
-					(gen-alt-content-if true tag attr simple HREF regen-relative-href)
-					(when-let [href (.getAttribute attr HREF)]
-					  (when (not-empty href) ;; href can be empty.
-						(str-alt-content tag attr HREF (regen-relative-href href) simple)))))))
+    (write-to pos (if (.containsAttribute attr HTML$Attribute/CLASS +wiki-link-class+)
+                    (gen-alt-content-if true tag attr simple HREF regen-relative-url)
+                    (when-let [url (.getAttribute attr HREF)]
+                      (when (not-empty url) ;; url can be empty.
+                        (str-alt-content tag attr HREF (regen-relative-url url) simple)))))))
 
 (defmethod handle-tags HTML$Tag/IMG
   [tag attr pos simple]
   (write-to pos (when-not (= (.getAttribute attr HTML$Attribute/SRC) +paypal-pixel-gif-url+)
-				  ;; A workaround for the Paypal's pixel.gif img element that is not ending
-				  ;; with '/>'.
-				  (gen-alt-content-if true
-									  tag attr simple HTML$Attribute/SRC #(to-res-path %)))))
+                  ;; A workaround for the Paypal's pixel.gif img element that is not ending
+                  ;; with '/>'.
+                  (gen-alt-content-if true
+                                      tag attr simple HTML$Attribute/SRC #(to-res-path %)))))
 
 (defmethod handle-tags HTML$Tag/LINK
   [tag attr pos simple]
   (write-to pos (gen-alt-content-if (.containsAttribute attr HTML$Attribute/REL "stylesheet")
-									tag attr simple HTML$Attribute/HREF #(to-res-path %))))
+                                    tag attr simple HTML$Attribute/HREF #(to-res-path %))))
 
 (defmethod handle-tags HTML$Tag/SCRIPT
   [tag attr pos simple]
   (write-to pos (gen-alt-content-if (and (.containsAttribute attr HTML$Attribute/TYPE "text/javascript")
-										 (.getAttribute attr HTML$Attribute/SRC))
-									tag attr simple HTML$Attribute/SRC #(to-res-path %))))
+                                         (.getAttribute attr HTML$Attribute/SRC))
+                                    tag attr simple HTML$Attribute/SRC #(to-res-path %))))
 
 (defmethod handle-tags HTML$Tag/TITLE
   [tag attr pos simple]
@@ -568,7 +580,7 @@
 
 (defn handle-text
   [data pos]
-  (if-not (empty? *text-handlers*)
+  (if (seq *text-handlers*)
     (call-text-handler data pos)
     (write-to pos)))
 
@@ -597,34 +609,34 @@
 (defn handle-page
   [response paramap]
   (when-let [entity (.getEntity response)]
-	(let [body-str (EntityUtils/toString entity +utf-8+)
-		  page-name (page-name-from-href (:href paramap))
-		  file (create-new-file (File. @->root-dir page-name) (str page-name +dot-html+))
-		  file-ostrm (FileOutputStream. file)]
-	  (print-msg "Saving " (:url paramap) " to " file)
-	  (with-open [ostrm-wtr (OutputStreamWriter. file-ostrm +utf-8+)]
-		(with-out-stream ostrm-wtr
-		  (parse-and-save-page body-str)))
-	  ;; Save response headers
-	  ;; Note: this is not performed today because the server says 'no-cache'
-	  ;; and doesn't provide Last-Modified date for any page so that we can't
-	  ;; make more efficient use of the If-Modified-Since header for pages.
-	  #_(save-response-headers file response))))
+    (let [body-str (EntityUtils/toString entity +utf-8+)
+          page-name (to-page-name (:page paramap))
+          file (create-new-file (File. @->root-dir page-name) (str page-name +dot-html+))
+          file-ostrm (FileOutputStream. file)]
+      (print-msg "Saving page " (:url paramap) " to " file)
+      (with-open [ostrm-wtr (OutputStreamWriter. file-ostrm +utf-8+)]
+        (with-out-stream ostrm-wtr
+          (parse-and-save-page body-str)))
+      ;; Save response headers
+      ;; Note: this is not performed today because the server says 'no-cache'
+      ;; and doesn't provide Last-Modified date for any page so that we can't
+      ;; make more efficient use of the If-Modified-Since header for pages.
+      #_(save-response-headers file response))))
   
 (defn handle-resources
   [response paramap & no-mod-call]
   (let [res-url (:url paramap)
-		entity (.getEntity response)]
-	(when (and (not (js-from-www-wikispaces-com? res-url)) entity)
-	  (let [res-file (create-new-file @->root-res-dir (subs res-url (.lastIndexOf res-url (int \/))))]
-		(print-msg "Saving " res-url " to " res-file)
-		(with-open [res-ostrm (FileOutputStream. res-file)]
-		  (.writeTo entity res-ostrm))
-		;; Save headers
-		(save-response-headers res-file response)
-		;; Modify URL()s in the .css files.
-		(when (and (nil? no-mod-call) (re-find (re-pattern (str @->home-page-url ".*\\.css$")) res-url))
-		  (modify-urls-in-file res-file))))))
+        entity (.getEntity response)]
+    (when (and (not (is-js-from-www-wikispaces-com res-url)) entity)
+      (let [res-file (create-new-file @->root-res-dir (url-to-name res-url))]
+        (print-msg "Saving resource " res-url " to " res-file)
+        (with-open [res-ostrm (FileOutputStream. res-file)]
+          (.writeTo entity res-ostrm))
+        ;; Save headers
+        (save-response-headers res-file response)
+        ;; Modify URL()s in the .css files.
+        (when (and (nil? no-mod-call) (re-find (re-pattern (str @->host-url ".*\\.css$")) res-url))
+          (modify-urls-in-file res-file))))))
 
 (defn handle-resources-no-mod-call
   [response paramap]
@@ -633,44 +645,40 @@
 (defn handle-not-status
   [status-msg response paramap msg-prefix]
   (when-let [entity (.getEntity response)]
-	(.consumeContent entity))
+    (.consumeContent entity))
   (print-msg msg-prefix (:url paramap) " not " status-msg))
-
 
 (defn do-save
   [paramap]
   (binding [*last-url* (:url paramap)]
-	(let [http-get (HttpGet. *last-url*)]
-	  ;; Add the If-Modified-Since param if available.
-	  (when (:last-modified paramap)
-		(.setHeader http-get "If-Modified-Since" (:last-modified paramap)))
-	  (try
-	   ;; Execute HttpGet and handle the response.
-	   (let [context (BasicHttpContext.)
-			 response (.execute @->http-client http-get context)
-			 status-code (.. response getStatusLine getStatusCode)]
-		 (cond
-		   (= status-code HttpStatus/SC_OK) ((:handler paramap) response paramap)
-		   (and (:last-modified paramap) (= status-code HttpStatus/SC_NOT_MODIFIED)) (handle-not-status "modified" response paramap nil)
-		   (= status-code HttpStatus/SC_NOT_FOUND) (handle-not-status "found" response paramap "WARNING: ")
-		   :else (print-error-msg "HttpGet for " (:url paramap) " failed with " (.getStatusLine response))))
-	   ;; Handle exceptions.
-	   (catch Exception e
-		 (.abort http-get)
-		 (print-error-msg "Fatal error in do-save: " (.getMessage e))
-		 (.printStackTrace e))))))
-
-(defn save-resource-if-require
-  [paramap]
-  (let [res-url (:url paramap)]
-	(when (and (not-saved? ->saved-res res-url) (require? res-url))
-	  (start-stg-thread #(do-save (add-last-modified-param paramap))))))
+    (let [http-get (HttpGet. *last-url*)]
+      ;; Add the If-Modified-Since param if available.
+      (when (:last-modified paramap)
+        (.setHeader http-get "If-Modified-Since" (:last-modified paramap)))
+      (try
+       ;; Execute HttpGet and handle the response.
+       (let [context (BasicHttpContext.)
+             response (.execute @->http-client http-get context)
+             status-code (.. response getStatusLine getStatusCode)]
+         (cond
+           (= status-code HttpStatus/SC_OK) ((:handler paramap) response paramap)
+           (and (:last-modified paramap) (= status-code HttpStatus/SC_NOT_MODIFIED)) (handle-not-status "modified" response paramap nil)
+           (= status-code HttpStatus/SC_NOT_FOUND) (handle-not-status "found" response paramap "WARNING: ")
+           :else (print-error-msg "HttpGet for " *last-url* " failed with " (.getStatusLine response))))
+       ;; Handle exceptions.
+       (catch Exception e
+         (.abort http-get)
+         (print-error-msg "do-save for " *last-url* ": " (.getMessage e))
+         #_(.printStackTrace e))))))
 
 (defn save-resources
-  [paramap]
-  (doseq [kv (filter #(when (not= (first %) :a) %) *res*)]
-	(doseq [v (fnext kv)]
-	  (save-resource-if-require {:url (target-url v) :handler handle-resources}))))
+  ([paramap]
+     (doseq [kv (filter #(when (not= (first %) :a) %) *res*)]
+       (doseq [v (fnext kv)]
+         (save-resources (res-url-filter (complete-url v)) handle-resources))))
+  ([res-url handler]
+     (when (and (not-saved? ->saved-res res-url) (need-this-res? res-url))
+       (start-stg-thread #(do-save (add-last-modified-param {:url res-url :handler handler}))))))
 
 (defn save-page-and-resources
   [paramap]
@@ -678,43 +686,43 @@
   ;; reason described in handle-page.
   (do-save paramap #_(add-last-modified-param paramap))
   (when @->print-res
-	(print-resources (:url paramap) *title*))
+    (print-resources (:url paramap) *title*))
   (save-resources paramap))
 
 (defn save-page
-  [href]
+  [page]
   ;; Start the stg watcher if not started yet.
   (when-not @->stg-watcher
-	(dosync (ref-set ->stg-watcher (Thread. @->stg #(watch-stg))))
-	(.start @->stg-watcher))
+    (dosync (ref-set ->stg-watcher (Thread. @->stg #(watch-stg))))
+    (.start @->stg-watcher))
   ;; Save this page.
   (binding [*res* (init-res)
-			*title* "(no title)"]
-	(save-page-and-resources {:href href :url (target-url href) :handler handle-page})
-	;; Save pages linked from this page.
-	(doseq [href (to-lower-name-set (:a *res*))]
-	  (when (and (valid-non-anchor-href? href) (not-saved? ->saved-hrefs href))
-		(start-stg-thread #(save-page href))))))
+            *title* "(no title)"]
+    (save-page-and-resources {:page page :url (complete-url page) :handler handle-page})
+    ;; Save pages linked from this page.
+    (doseq [page (to-lower-name-set (:a *res*))]
+      (when (and (valid-non-anchor-url? page) (not-saved? ->saved-urls page))
+        (start-stg-thread #(save-page page))))))
 
 (defn save-website
-  [home-page-url site-dir & opts]
+  [url dir opts]
   (if (nil? @->http-client)
-	(do
-	  (init-refs home-page-url site-dir)
-	  (process-options opts)
-	  (when (not-saved? ->saved-hrefs @->home-page)
-		(start-stg-thread #(save-page @->home-page)))
-	  true)
-	(do
-	  (println "Busy saving a website. Try again later.")
-	  false)))
+    (do
+      (init-refs url dir)
+      (process-options opts)
+      (when (not-saved? ->saved-urls @->home-page)
+        (start-stg-thread #(save-page @->home-page)))
+      true)
+    (do
+      (println "Skip Downloading" url "because the program is still busy saving" @->host-url)
+      false)))
 
 (defn print-sites
   "Print all site keys, their URLs and save directory names."
   []
   (printf "%-16s %-64s %s\n" "Site key" "URL" "Save directory")
   (doseq [[k [u d]] +sites+]
-	(printf "%-16s %-64s %s\n" k u (File. (abs-save-root-dir) d))))
+    (printf "%-16s %-64s %s\n" k u (File. (abs-save-root-dir) d))))
 
 (defn save
   "Save the Clojure website specified by the given site key to the user's
@@ -724,20 +732,26 @@
   names."
   [site-key & opts]
   (if ((apply hash-set (keys +sites+)) site-key)
-	(let [[url dir] (+sites+ site-key)]
-	  (invoke save-website url dir opts))
-	"Unknown site key. Do print-sites for knwon site keys and try again."))
+    (let [[url dir] (+sites+ site-key)]
+      (save-website url dir opts))
+    "Unknown site key. Do print-sites for knwon site keys and try again."))
 
 (defn save-all
   "Save the Clojure websites to the user's current working directory.
   Adding the :verbose option prints extra status messages while saving the websites."
   [& opts]
-  (letfn [(save-loop
-		   []
-		   (doseq [[_ [url dir]] +sites+]
-			 (when (invoke save-website url dir opts)
-			   (loop [stg-watcher @->stg-watcher]
-				 (if stg-watcher
-				   (.join stg-watcher)
-				   (recur @->stg-watcher))))))]
-	(.start (Thread. save-loop))))
+  (letfn [(wait-for-stg-watcher-start-and-end
+           []
+           (loop [sw @->stg-watcher]
+             (when (nil? sw)
+               (recur @->stg-watcher)))
+           (.join @->stg-watcher)
+           (loop [sw @->stg-watcher]
+             (when sw
+               (recur @->stg-watcher))))
+          (do-save-all
+           []
+           (doseq [[_ [url dir]] +sites+]
+             (when (save-website url dir opts)
+               (wait-for-stg-watcher-start-and-end))))]
+    (.start (Thread. do-save-all))))
