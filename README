@@ -10,8 +10,8 @@
 ;; the terms of this license.
 ;; You must not remove this notice, or any other, from this software.
 ;;
-;; This program saves the pages and its resources of some known Clojure
-;; websites. Those are:
+;; This program saves the pages and its resources of these well-known Clojure
+;; websites:
 ;;   http://clojure.org/
 ;;   http://richhickey.github.com/clojure/
 ;;   http://richhickey.github.com/clojure-contrib/
