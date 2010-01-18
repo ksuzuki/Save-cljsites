@@ -117,7 +117,7 @@
 (def +url-regex+ #"^/?(([^.#]+\.?)+)(#.*)?$")
 (def +user-dir+ (System/getProperty "user.dir"))
 (def +utf-8+ "UTF-8")
-(def +version+ "1.3.0")
+(def +version+ "2.0.0")
 (def +wiki-link-class+ "wiki_link")
 (def +www-wikispaces-com-js-regex+ #"http://www.wikispaces.com/.*\.js$")
 
