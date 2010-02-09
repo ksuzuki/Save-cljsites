@@ -28,11 +28,10 @@
 ;;
 ;; e.g. (save-cljsites/save :org :verbose)
 ;;
-;; Use print-sites to print known site keys, their URLs and save directory
-;; names.
+;; Use print-sites to print known site keys, their URLs and directory to save.
 ;;
-;; (savae-cljsites/print-sites)
-;; Print all Clojure site keys, their URLs and save directory names.
+;; (save-cljsites/print-sites)
+;; Print all Clojure site keys, their URLs and directory to save.
 ;;
 ;; Requirements
 ;; This program requires HttpClient 4.0 and dependencies from the Apache
@@ -41,6 +40,8 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (ns save-cljsites
+  (:gen-class)
+  (:use clojure.contrib.command-line)
   (:import (java.io
             BufferedReader BufferedWriter File FileOutputStream FileReader
             FileWriter OutputStreamWriter StringReader)
@@ -117,7 +118,7 @@
 (def +url-regex+ #"^/?(([^.#]+\.?)+)(#.*)?$")
 (def +user-dir+ (System/getProperty "user.dir"))
 (def +utf-8+ "UTF-8")
-(def +version+ "2.0.0")
+(def +version+ "2.1.0")
 (def +wiki-link-class+ "wiki_link")
 (def +www-wikispaces-com-js-regex+ #"http://www.wikispaces.com/.*\.js$")
 
@@ -138,6 +139,7 @@
 (def ->print-msg (atom false))
 (def ->print-res (atom false))
 (def ->start-nano-time (atom 0))
+(def ->repl (atom true))
 
 ;;;; Vars
 
@@ -718,23 +720,26 @@
       false)))
 
 (defn print-sites
-  "Print all site keys, their URLs and save directory names."
+  "Print all site keys, their URLs and directory to save."
   []
-  (printf "%-16s %-64s %s\n" "Site key" "URL" "Save directory")
+  (println (format "%-16s %-64s %s" "Site key" "URL" "Directory to save"))
   (doseq [[k [u d]] +sites+]
-    (printf "%-16s %-64s %s\n" k u (File. (abs-save-root-dir) d))))
+    (println (format "%-16s %-64s %s" (if @->repl k (name k)) u (File. (abs-save-root-dir) d)))))
 
 (defn save
   "Save the Clojure website specified by the given site key to the user's
   current working directory. Adding the :verbose option prints extra status
   messages while saving the website.
-  Use print-sites to print known site keys, their URLs and save directory
-  names."
+  Use print-sites to print known site keys, their URLs and directory to save."
   [site-key & opts]
   (if ((apply hash-set (keys +sites+)) site-key)
     (let [[url dir] (+sites+ site-key)]
       (save-website url dir opts))
-    "Unknown site key. Do print-sites for knwon site keys and try again."))
+    (println (str "Unknown site key. "
+                  (if @->repl
+                    "Do print-sites" 
+                    "Use --info option")
+                  " for knwon site keys and try again."))))
 
 (defn save-all
   "Save the Clojure websites to the user's current working directory.
@@ -755,3 +760,22 @@
              (when (save-website url dir opts)
                (wait-for-stg-watcher-start-and-end))))]
     (.start (Thread. do-save-all))))
+
+(defn -main
+  [& argv]
+  (try
+   (with-command-line argv
+     (str "save-cljsites version " +version+ " -- save Clojure sites (all when no site is specified)\n"
+          "usage: save-cljsites [options]")
+     [[help?    h? "Print this help message"]
+      [info?    i? "Print all Clojure site keys, their URLs and directory to save"]
+      [site     s  "Save Clojure website specified by a site key"]
+      [verbose? v? "Print extra status messages while saving site"]]
+     ;;
+     (swap! ->repl (fn [_ v] v) false)
+     (cond
+      info? (print-sites)
+      site (save (keyword site) (if verbose? :verbose))
+      :else (save-all (if verbose? :verbose))))
+   (catch Exception _
+     (println "Exception error occurred, probably due to invalid option?"))))
