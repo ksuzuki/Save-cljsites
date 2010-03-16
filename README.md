@@ -1,7 +1,7 @@
 # save-cljsites - save the Clojure websites
 
-This program saves the pages and its resources of some known Clojure websites.
-Those are:
+This program saves the pages and its resources of some well known Clojure
+websites. Those are:
 
 * [http://clojure.org/](http://clojure.org/)
 * [http://richhickey.github.com/clojure/](http://richhickey.github.com/clojure/)
@@ -9,30 +9,34 @@ Those are:
 
 ## Usage
 
-### in Repl
+You can run this program either in the repl or from the command line. To run
+this program from the command line, build a stand-alone jar using leiningen.
+
+### in the Repl
 
 `(save-cljsites/save-all & option)`
 > Save the Clojure websites to the user's current working directory. Adding the
-> :verbose option prints extra status messages while saving the websites.
+> :verbose option will print extra status messages.
 
 `(save-cljsites/save site-key & option)`
-> Save the Clojure website specified by the given site key to the user's
-> current working directory. Adding the :verbose option prints extra status
-> messages while saving the website.
+> Save the Clojure website specified by the site key to the user's current
+> working directory. Adding the :verbose option will prints extra status
+> messages.
 >
 > e.g. `(save-cljsites/save :org :verbose)`
 >
-> Use print-sites to print known site keys, their URLs and directories to save.
+> Run `(save-cljsites/print-sites)` to print known site keys, their URLs and
+> directories to save.
 
-`(savae-cljsites/print-sites)`
+`(save-cljsites/print-sites)`
 > Print all Clojure site keys, their URLs and directories to save.
 
-### from the command line
+### from the Command Line
 
-When you run this program from the command line, all the Clojure websites above
-are saved by default. You can also save only a specific Clojure website using
-the --site option. Run this program with th --help option for more details of
-the available options.
+When you run this program from the command line with no options, all
+Clojure websites above are saved by default. You can also save only a
+specific Clojure website using the --site option. Run this program with the
+--help option for more details of the available options.
 
 ## Requirements
 
