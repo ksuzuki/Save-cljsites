@@ -84,6 +84,12 @@
               :api ["http://richhickey.github.com/clojure/" "api"],
               :contrib ["http://richhickey.github.com/clojure-contrib/" "contrib"]})
 
+;;;; Take these URLs same as the known site URLs.
+(def +aliases+ '(["http://github.com/clojure/clojure-contrib/" "contrib"]
+                   ["http://github.com/clojure/clojure-contrib" "contrib"]
+                     #_["http://github.com/richhickey/clojure-contrib/" "contrib"]
+                     #_["http://github.com/richhickey/clojure-contrib" "contrib"]))
+
 ;;;; Constants
 
 (def +dot-hdrs+ ".hdrs")
@@ -95,7 +101,7 @@
 (def +url-regex+ #"^(\w+:/)?((/|/?[^/#]+)+)(#.*)*$")
 (def +user-dir+ (System/getProperty "user.dir"))
 (def +utf-8+ "UTF-8")
-(def +version+ "2.1.2")
+(def +version+ "2.1.3")
 (def +wiki-link-class+ "wiki_link")
 (def +www-wikispaces-com-js-regex+ #"http://www.wikispaces.com/.*\.js$")
 
@@ -297,7 +303,8 @@
   [url]
   (let [urlm (url-broker url)
         urlx (str (:proto urlm) (:path urlm))
-        fnd (filter #(re-find (re-pattern (first %)) urlx) (map #(val %) +sites+))]
+        fnd (filter #(re-find (re-pattern (first %)) urlx) (concat (map #(val %) +sites+)
+                                                                   +aliases+))]
     (if (seq fnd)
       (let [[urlf dir] (first fnd)
             urly (subs urlx (count urlf))]
