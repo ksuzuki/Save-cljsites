@@ -81,8 +81,8 @@
 ;;;; site-dir will be created under (abs-save-root-dir)
 
 (def +sites+ {:org ["http://clojure.org/" "org"],
-              :api ["http://richhickey.github.com/clojure/" "api"],
-              :contrib ["http://richhickey.github.com/clojure-contrib/" "contrib"]})
+              :api ["http://clojure.github.com/clojure/" "api"],
+              :contrib ["http://clojure.github.com/clojure-contrib/" "contrib"]})
 
 ;;;; Take these URLs same as the known site URLs.
 (def +aliases+ '(["http://github.com/clojure/clojure-contrib/" "contrib"]
@@ -95,13 +95,14 @@
 (def +dot-hdrs+ ".hdrs")
 (def +dot-html+ ".html")
 (def +dot-html$-regex+ #"\.html$")
+(def +external-doc-link+ "external-doc-link")
 (def +max-total-connections+ 100)
 (def +paypal-pixel-gif-url+ "https://www.paypal.com/en_US/i/scr/pixel.gif")
 (def +save-root-dir+ "Clojure-sites")
 (def +url-regex+ #"^(\w+:/)?((/|/?[^/#]+)+)(#.*)*$")
 (def +user-dir+ (System/getProperty "user.dir"))
 (def +utf-8+ "UTF-8")
-(def +version+ "2.1.3")
+(def +version+ "2.1.4")
 (def +wiki-link-class+ "wiki_link")
 (def +www-wikispaces-com-js-regex+ #"http://www.wikispaces.com/.*\.js$")
 
@@ -128,6 +129,7 @@
 
 (def *alt-content* nil)
 (def *content* nil)
+(def *external-doc-link* false)
 (def *last-pos* 0)
 (def *last-url* nil)
 (def *res* nil)
@@ -167,7 +169,11 @@
    (ref-set ->root-dir (File. (abs-save-root-dir) dir))
    (ref-set ->root-res-dir (File. @->root-dir ".res")))
   (dosync
-   (ref-set ->saved-urls #{})
+   (ref-set ->saved-urls (apply hash-set (reduce (fn [lst url]
+                                                   (cons (apply str (drop-last url))
+                                                         (cons url lst)))
+                                                 nil
+                                                 (map (fn [[url nm]] url) (vals +sites+)))))
    (ref-set ->saved-res #{})
    (ref-set ->stg (ThreadGroup. (str "stg for " url)))
    (ref-set ->stg-watcher nil))
@@ -186,10 +192,12 @@
 (defn not-saved?
   [->obj item]
   (dosync
-   (if (@->obj item)
+   (if (@->obj (.toLowerCase (str item)))
      false
      (do
-       (alter ->obj conj item)
+       (let [item1 (.toLowerCase (str item))
+             item2 (if (= (last item1) \/) (apply str (drop-last item1)) item1)]
+         (alter ->obj conj item1 item2))
        true))))
 
 (defn print-msg
@@ -294,7 +302,7 @@
 
 (defn add-html-if-missing
   [url]
-  (if (or (nil? url) (= url "") (re-find #"\.html(#.*)*$" url))
+  (if (or (nil? url) (= url "") (re-find #"(http://|.*\.html(#.*)*$)" url))
     url
     (let [match (re-find #"([^#]+)(#.*)*$" url)]
       (str (nth match 1) +dot-html+ (nth match 2)))))
@@ -417,10 +425,6 @@
       (.renameTo tmpfile file)
       (print-error-msg "Delete-and-renaming " file " failed."))))
       
-(defn to-lower-name-set
-  [s]
-  (into #{} (map #(.toLowerCase (str %)) s)))
-
 (defn get-header-value-string
   [header-string]
   (second (re-find #"^[^:]+:\s*(.*)$" header-string)))
@@ -511,10 +515,10 @@
    (ref-set ->saved-res #{})
    (ref-set ->stg nil)
    (ref-set ->stg-watcher nil))
-  (println "Saving Clojure"
+  (println "=== Saving Clojure"
            (second (val (first (filter #(= @->site-url (first (val %))) +sites+))))
            "site completed"
-           (format "(%.2f msecs)" (/ (double (- (System/nanoTime) @->start-nano-time)) 1000000.0))))
+           (format "(%.2f msecs) ===" (/ (double (- (System/nanoTime) @->start-nano-time)) 1000000.0))))
 
 (defn watch-stg
   "Due to the way to create the thread that runs this function the thread
@@ -545,12 +549,22 @@
   (when (pos? *last-pos*)
     (println (subs *content* *last-pos*))))
 
-(defn handle-end-tag
+(defn handle-error
+  [errmsg pos])
+
+(defmulti handle-end-tag
+  (fn [tag pos]
+    tag))
+
+(defmethod handle-end-tag :default
   [tag pos]
   (write-to pos))
 
-(defn handle-error
-  [errmsg pos])
+(defmethod handle-end-tag HTML$Tag/SPAN
+  [tag pos]
+  (when *external-doc-link*
+    (set! *external-doc-link* false))
+  (write-to pos))
 
 (defmulti handle-tags
   (fn [tag attr pos simple]
@@ -562,7 +576,8 @@
 (defmethod handle-tags HTML$Tag/A
   [tag attr pos simple]
   (let [HREF HTML$Attribute/HREF]
-    (write-to pos (if (.containsAttribute attr HTML$Attribute/CLASS +wiki-link-class+)
+    (write-to pos (if (or (.containsAttribute attr HTML$Attribute/CLASS +wiki-link-class+)
+                          *external-doc-link*)
                     (gen-alt-content-if true tag attr simple HREF loc-url)
                     (when-let [url (.getAttribute attr HREF)]
                       (when (not-empty url) ;; url can be empty.
@@ -589,6 +604,12 @@
                                          (.getAttribute attr HTML$Attribute/SRC))
                                     tag attr simple HTML$Attribute/SRC #(res-path %))))
 
+(defmethod handle-tags HTML$Tag/SPAN
+  [tag attr pos simple]
+  (when (.containsAttribute attr HTML$Attribute/ID +external-doc-link+)
+    (set! *external-doc-link* true))
+  (write-to pos))
+
 (defmethod handle-tags HTML$Tag/TITLE
   [tag attr pos simple]
   (post-text-handler (fn [data pos]
@@ -607,7 +628,8 @@
   (binding [*content* content
             *last-pos* 0
             *alt-content* nil
-            *text-handlers* '()]
+            *text-handlers* '()
+            *external-doc-link* false]
     (let [rd (BufferedReader. (StringReader. *content*))
           pd (ParserDelegator.)
           cb (proxy [HTMLEditorKit$ParserCallback] []
@@ -727,7 +749,7 @@
                               :page-url *last-url*
                               :handler handle-page})
     ;; Save pages linked from this page.
-    (doseq [page-url (to-lower-name-set (:a *res*))]
+    (doseq [page-url (:a *res*)]
       (when (non-anchor-url? page-url)
         (let [abs-page-url (absolute-url page-url)]
           (when (not-saved? ->saved-urls abs-page-url)

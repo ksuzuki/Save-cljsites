@@ -1,4 +1,4 @@
-(defproject save-cljsites "2.1.3"
+(defproject save-cljsites "2.1.4"
   :description "Save Clojure web sites"
   :main save-cljsites
   :dependencies [[org.clojure/clojure "1.2.0"]
