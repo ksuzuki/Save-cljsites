@@ -102,8 +102,9 @@
 (def +url-regex+ #"^(\w+:/)?((/|/?[^/#]+)+)(#.*)*$")
 (def +user-dir+ (System/getProperty "user.dir"))
 (def +utf-8+ "UTF-8")
-(def +version+ "2.1.4")
+(def +version+ "2.1.5")
 (def +wiki-link-class+ "wiki_link")
+(def +wiki-link-ext-class+ "wiki_link_ext")
 (def +www-wikispaces-com-js-regex+ #"http://www.wikispaces.com/.*\.js$")
 
 ;;;; Refs
@@ -237,6 +238,10 @@
      :path (nth match 2)
      :name name
      :anchor (last match)}))
+
+(defn url-proto
+  [url]
+  (:proto (url-broker url)))
 
 (defn page-name
   [url]
@@ -577,6 +582,8 @@
   [tag attr pos simple]
   (let [HREF HTML$Attribute/HREF]
     (write-to pos (if (or (.containsAttribute attr HTML$Attribute/CLASS +wiki-link-class+)
+                          (and (.containsAttribute attr HTML$Attribute/CLASS +wiki-link-ext-class+)
+                               (not (url-proto (.getAttribute attr HREF))))
                           *external-doc-link*)
                     (gen-alt-content-if true tag attr simple HREF loc-url)
                     (when-let [url (.getAttribute attr HREF)]
