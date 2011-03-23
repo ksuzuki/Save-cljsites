@@ -102,7 +102,7 @@
 (def +url-regex+ #"^(\w+:/)?((/|/?[^/#]+)+)(#.*)*$")
 (def +user-dir+ (System/getProperty "user.dir"))
 (def +utf-8+ "UTF-8")
-(def +version+ "2.1.5")
+(def +version+ "2.1.6")
 (def +wiki-link-class+ "wiki_link")
 (def +wiki-link-ext-class+ "wiki_link_ext")
 (def +www-wikispaces-com-js-regex+ #"http://www.wikispaces.com/.*\.js$")
@@ -292,18 +292,19 @@
     (set! *res* (conj *res* {key (conj (key *res*) val)}))))
 
 (defn str-alt-content
-  [tag attr key val simple]
+  [tag attr key val simple nl]
   (str "<" tag
        (apply str (map (fn [k] (format " %s=\"%s\"" k (if (= k key) val (.getAttribute attr k))))
                        (enumeration-seq (.getAttributeNames attr))))
-       (if simple "/" ">")))
+       (if simple "/>" ">")
+       nl))
 
 (defn gen-alt-content-if
-  [pred tag attr simple key val-fn]
+  [pred tag attr simple key val-fn nl]
   (when pred
     (let [val (.getAttribute attr key)]
       (remember-resource tag val)
-      (str-alt-content (str tag) attr key (val-fn val) simple))))
+      (str-alt-content (str tag) attr key (val-fn val) simple nl))))
 
 (defn add-html-if-missing
   [url]
@@ -576,7 +577,8 @@
     tag))
 
 (defmethod handle-tags :default
-  [tag attr pos simple])
+  [tag attr pos simple]
+  (write-to pos))
 
 (defmethod handle-tags HTML$Tag/A
   [tag attr pos simple]
@@ -585,10 +587,11 @@
                           (and (.containsAttribute attr HTML$Attribute/CLASS +wiki-link-ext-class+)
                                (not (url-proto (.getAttribute attr HREF))))
                           *external-doc-link*)
-                    (gen-alt-content-if true tag attr simple HREF loc-url)
+                    (gen-alt-content-if true
+                                        tag attr simple HREF loc-url nil)
                     (when-let [url (.getAttribute attr HREF)]
                       (when (not-empty url) ;; url can be empty.
-                        (str-alt-content tag attr HREF (loc-url url) simple)))))))
+                        (str-alt-content tag attr HREF (loc-url url) simple nil)))))))
 
 (defmethod handle-tags HTML$Tag/IMG
   [tag attr pos simple]
@@ -596,20 +599,20 @@
                   ;; A workaround for the Paypal's pixel.gif img element that is not ending
                   ;; with '/>'.
                   (gen-alt-content-if true
-                                      tag attr simple HTML$Attribute/SRC #(res-path %)))))
+                                      tag attr simple HTML$Attribute/SRC #(res-path %) nil))))
 
 (defmethod handle-tags HTML$Tag/LINK
   [tag attr pos simple]
   (write-to pos (gen-alt-content-if (or (.containsAttribute attr HTML$Attribute/REL "stylesheet")
                                         (.containsAttribute attr HTML$Attribute/REL "icon")
                                         (.containsAttribute attr HTML$Attribute/REL "shortcut icon"))
-                                    tag attr simple HTML$Attribute/HREF #(res-path %))))
+                                    tag attr simple HTML$Attribute/HREF #(res-path %) "\n")))
 
 (defmethod handle-tags HTML$Tag/SCRIPT
   [tag attr pos simple]
   (write-to pos (gen-alt-content-if (and (.containsAttribute attr HTML$Attribute/TYPE "text/javascript")
                                          (.getAttribute attr HTML$Attribute/SRC))
-                                    tag attr simple HTML$Attribute/SRC #(res-path %))))
+                                    tag attr simple HTML$Attribute/SRC #(res-path %) nil)))
 
 (defmethod handle-tags HTML$Tag/SPAN
   [tag attr pos simple]
